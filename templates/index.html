@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech to Note</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 0;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .recording {
+            background-color: #f44336;
+        }
+        .recording:hover {
+            background-color: #d32f2f;
+        }
+        .result-container {
+            margin-top: 20px;
+            display: none;
+        }
+        .tab-container {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background-color: #ddd;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background-color: white;
+            border: 1px solid #ccc;
+            border-bottom: none;
+        }
+        .tab-content {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 0 5px 5px 5px;
+            background-color: white;
+            min-height: 200px;
+            white-space: pre-line; /* Preserves line breaks in bullet points */
+        }
+        #notes-list {
+            margin-top: 20px;
+        }
+        .note-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .note-item:hover {
+            background-color: #f0f0f0;
+        }
+        .note-date {
+            font-size: 0.8em;
+            color: #666;
+        }
+        #status {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: bold;
+            color: #666;
+        }
+        #timer {
+            text-align: center;
+            font-size: 24px;
+            margin: 10px 0;
+            display: none;
+        }
+        .file-actions {
+            margin-top: 15px;
+            text-align: right;
+        }
+        .btn-file {
+            background-color: #2196F3;
+            color: white;
+            margin-left: 10px;
+            font-size: 0.9em;
+        }
+        .btn-file:hover {
+            background-color: #0b7dda;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Speech to Note</h1>
+        
+        <div id="status">Ready to record</div>
+        <div id="timer">00:00</div>
+        
+        <div style="text-align: center;">
+            <button id="recordButton">Start Recording</button>
+            <button id="viewNotesButton">View Saved Notes</button>
+        </div>
+        
+        <div id="result-container" class="result-container">
+            <div class="tab-container">
+                <div class="tab active" data-tab="transcription">Transcription</div>
+                <div class="tab" data-tab="summary">Summary</div>
+            </div>
+            <div class="tab-content" id="transcription-content"></div>
+            <div class="tab-content" id="summary-content" style="display: none;"></div>
+        </div>
+        
+        <div id="notes-container" style="display: none;">
+            <h2>Saved Notes</h2>
+            <div id="notes-list"></div>
+            
+            <div id="note-detail" style="display: none;">
+                <h3>Note Details</h3>
+                <div class="tab-container">
+                    <div class="tab active" data-tab="note-transcription">Transcription</div>
+                    <div class="tab" data-tab="note-summary">Summary</div>
+                </div>
+                <div class="tab-content" id="note-transcription-content"></div>
+                <div class="tab-content" id="note-summary-content" style="display: none;"></div>
+                
+                <div class="file-actions">
+                    <button id="openTranscriptionButton" class="btn-file">Open Transcription File</button>
+                    <button id="openSummaryButton" class="btn-file">Open Summary File</button>
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px;">
+                    <button id="backToListButton">Back to List</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const recordButton = document.getElementById('recordButton');
+            const viewNotesButton = document.getElementById('viewNotesButton');
+            const resultContainer = document.getElementById('result-container');
+            const notesContainer = document.getElementById('notes-container');
+            const notesList = document.getElementById('notes-list');
+            const noteDetail = document.getElementById('note-detail');
+            const backToListButton = document.getElementById('backToListButton');
+            const statusElement = document.getElementById('status');
+            const timerElement = document.getElementById('timer');
+            const openTranscriptionButton = document.getElementById('openTranscriptionButton');
+            const openSummaryButton = document.getElementById('openSummaryButton');
+            
+            let isRecording = false;
+            let timerInterval;
+            let seconds = 0;
+            
+            // Handle tab switching
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabName = this.getAttribute('data-tab');
+                    const isNoteTab = tabName.startsWith('note-');
+                    const prefix = isNoteTab ? 'note-' : '';
+                    
+                    // Deactivate all tabs
+                    document.querySelectorAll(`.tab${isNoteTab ? '[data-tab^="note-"]' : ':not([data-tab^="note-"])'}`).forEach(t => {
+                        t.classList.remove('active');
+                    });
+                    
+                    // Hide all tab contents
+                    if (isNoteTab) {
+                        document.getElementById('note-transcription-content').style.display = 'none';
+                        document.getElementById('note-summary-content').style.display = 'none';
+                    } else {
+                        document.getElementById('transcription-content').style.display = 'none';
+                        document.getElementById('summary-content').style.display = 'none';
+                    }
+                    
+                    // Activate selected tab
+                    this.classList.add('active');
+                    
+                    // Show selected tab content
+                    const contentId = isNoteTab ? tabName + '-content' : tabName + '-content';
+                    document.getElementById(contentId).style.display = 'block';
+                });
+            });
+            
+            // Record button click handler
+            recordButton.addEventListener('click', function() {
+                if (isRecording) {
+                    stopRecording();
+                } else {
+                    startRecording();
+                }
+            });
+            
+            // View notes button click handler
+            viewNotesButton.addEventListener('click', function() {
+                resultContainer.style.display = 'none';
+                notesContainer.style.display = 'block';
+                noteDetail.style.display = 'none';
+                loadNotes();
+            });
+            
+            // Back to list button click handler
+            backToListButton.addEventListener('click', function() {
+                noteDetail.style.display = 'none';
+                notesList.style.display = 'block';
+            });
+            
+            function startRecording() {
+                isRecording = true;
+                recordButton.textContent = 'Stop Recording';
+                recordButton.classList.add('recording');
+                statusElement.textContent = 'Recording...';
+                
+                // Start timer
+                seconds = 0;
+                timerElement.textContent = '00:00';
+                timerElement.style.display = 'block';
+                timerInterval = setInterval(updateTimer, 1000);
+                
+                // Hide result container
+                resultContainer.style.display = 'none';
+                notesContainer.style.display = 'none';
+                
+                // Start recording via API
+                fetch('/start_record', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.success) {
+                            statusElement.textContent = data.message;
+                            isRecording = false;
+                            recordButton.textContent = 'Start Recording';
+                            recordButton.classList.remove('recording');
+                            clearInterval(timerInterval);
+                            timerElement.style.display = 'none';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        statusElement.textContent = 'Error starting recording';
+                        isRecording = false;
+                        recordButton.textContent = 'Start Recording';
+                        recordButton.classList.remove('recording');
+                        clearInterval(timerInterval);
+                        timerElement.style.display = 'none';
+                    });
+            }
+            
+            function stopRecording() {
+                isRecording = false;
+                recordButton.textContent = 'Start Recording';
+                recordButton.classList.remove('recording');
+                statusElement.textContent = 'Processing audio...';
+                
+                // Stop timer
+                clearInterval(timerInterval);
+                timerElement.style.display = 'none';
+                
+                // Process the recording
+                fetch('/stop_record', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Display results
+                            resultContainer.style.display = 'block';
+                            document.getElementById('transcription-content').textContent = data.transcription;
+                            document.getElementById('summary-content').textContent = data.summary;
+                            
+                            // Activate transcription tab
+                            document.querySelector('.tab[data-tab="transcription"]').click();
+                            
+                            statusElement.textContent = 'Ready to record';
+                        } else {
+                            statusElement.textContent = data.message;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        statusElement.textContent = 'Error processing audio';
+                    });
+            }
+            
+            function updateTimer() {
+                seconds++;
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                timerElement.textContent = 
+                    (minutes < 10 ? '0' : '') + minutes + ':' + 
+                    (remainingSeconds < 10 ? '0' : '') + remainingSeconds;
+            }
+            
+            function loadNotes() {
+                statusElement.textContent = 'Loading notes...';
+                notesList.innerHTML = '';
+                
+                fetch('/notes')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.notes.length === 0) {
+                            notesList.innerHTML = '<p>No saved notes found.</p>';
+                        } else {
+                            data.notes.forEach(note => {
+                                const noteItem = document.createElement('div');
+                                noteItem.className = 'note-item';
+                                noteItem.innerHTML = `
+                                    <div class="note-date">${note.date}</div>
+                                    <div>${note.summary}</div>
+                                `;
+                                noteItem.addEventListener('click', function() {
+                                    loadNoteDetails(note.id);
+                                });
+                                notesList.appendChild(noteItem);
+                            });
+                        }
+                        statusElement.textContent = 'Ready to record';
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        notesList.innerHTML = '<p>Error loading notes.</p>';
+                        statusElement.textContent = 'Error loading notes';
+                    });
+            }
+            
+            function loadNoteDetails(noteId) {
+                statusElement.textContent = 'Loading note details...';
+                
+                fetch(`/note/${noteId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            notesList.style.display = 'none';
+                            noteDetail.style.display = 'block';
+                            
+                            document.getElementById('note-transcription-content').textContent = data.transcription;
+                            document.getElementById('note-summary-content').textContent = data.summary;
+                            
+                            // Store file paths for open buttons
+                            document.getElementById('openTranscriptionButton').setAttribute('data-path', data.transcription_path);
+                            document.getElementById('openSummaryButton').setAttribute('data-path', data.summary_path);
+                            
+                            // Activate transcription tab
+                            document.querySelector('.tab[data-tab="note-transcription"]').click();
+                            
+                            statusElement.textContent = 'Ready to record';
+                        } else {
+                            statusElement.textContent = 'Error: ' + data.error;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        statusElement.textContent = 'Error loading note details';
+                    });
+            }
+            
+            // Open file buttons
+            openTranscriptionButton.addEventListener('click', function() {
+                openFile(this.getAttribute('data-path'));
+            });
+            
+            openSummaryButton.addEventListener('click', function() {
+                openFile(this.getAttribute('data-path'));
+            });
+            
+            function openFile(filePath) {
+                if (!filePath) {
+                    alert('File path not available');
+                    return;
+                }
+                
+                fetch(`/open_file?path=${encodeURIComponent(filePath)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.success) {
+                            alert('Error: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error opening file');
+                    });
+            }
+        });
+    </script>
+</body>
+</html>
